@@ -137,6 +137,7 @@ bool g_SavedValveBackup = false;
 bool g_DoingBackupRestoreNow = false;
 
 // Stats values
+StringMap g_FlashbangContainer; // Stores info about which flashbang entities flashed which players.
 bool g_SetTeamClutching[4];
 int g_RoundKills[MAXPLAYERS + 1];  // kills per round each client has gotten
 int g_RoundClutchingEnemyCount[MAXPLAYERS +
@@ -204,6 +205,7 @@ Handle g_OnBombDefused = INVALID_HANDLE;
 Handle g_OnBombPlanted = INVALID_HANDLE;
 Handle g_OnDemoFinished = INVALID_HANDLE;
 Handle g_OnEvent = INVALID_HANDLE;
+Handle g_OnFlashbangDetonated = INVALID_HANDLE;
 Handle g_OnGameStateChanged = INVALID_HANDLE;
 Handle g_OnGoingLive = INVALID_HANDLE;
 Handle g_OnGrenadeThrown = INVALID_HANDLE;
@@ -476,11 +478,14 @@ public void OnPluginStart() {
     g_TeamAuths[i] = new ArrayList(AUTH_LENGTH);
   }
   g_PlayerNames = new StringMap();
+  g_FlashbangContainer = new StringMap();
 
   /** Create forwards **/
   g_OnBackupRestore = CreateGlobalForward("Get5_OnBackupRestore", ET_Ignore);
   g_OnDemoFinished = CreateGlobalForward("Get5_OnDemoFinished", ET_Ignore, Param_String);
   g_OnEvent = CreateGlobalForward("Get5_OnEvent", ET_Ignore, Param_String);
+  g_OnFlashbangDetonated = CreateGlobalForward("Get5_OnFlashbangDetonated", ET_Ignore, Param_Cell, Param_Cell,
+    Param_Cell, Param_Cell, Param_Cell, Param_Cell);
   g_OnGameStateChanged =
       CreateGlobalForward("Get5_OnGameStateChanged", ET_Ignore, Param_Cell, Param_Cell);
   g_OnGoingLive = CreateGlobalForward("Get5_OnGoingLive", ET_Ignore, Param_Cell);

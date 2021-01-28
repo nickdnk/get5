@@ -122,6 +122,16 @@ public void Get5_OnGrenadeThrown(char[] weapon, int mapNumber, int roundNumber, 
 
 }
 
+public void Get5_OnFlashbangDetonated(ArrayList victims, int mapNumber, int roundNumber, int roundTime, int attacker,
+    int attackerSide) {
+
+    char attackerString[32];
+    GetAuth(attacker, attackerString, sizeof(attackerString));
+
+    LogMessage("%s flashed %i enemies", attackerString, victims.Length);
+
+}
+
 public void Get5_OnPlayerDiedInMatch(char[] weapon, bool headshot, int mapNumber, int roundNumber, int roundTime,
     int attacker, int victim, int assister, bool flashAssist, int penetratedObjects, bool thruSmoke, bool noScope,
     bool attackerBlind, int attackerSide) {

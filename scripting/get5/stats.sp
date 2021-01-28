@@ -4,6 +4,7 @@ public void Stats_PluginStart() {
   HookEvent("bomb_defused", Stats_BombDefusedEvent);
   HookEvent("bomb_exploded", Stats_BombExplodedEvent);
   HookEvent("bomb_planted", Stats_BombPlantedEvent);
+  HookEvent("flashbang_detonate", Stats_FlashbangDetonateEvent);
   HookEvent("grenade_thrown", Stats_GrenadeThrownEvent);
   HookEvent("player_blind", Stats_PlayerBlindEvent);
   HookEvent("player_death", Stats_PlayerDeathEvent);
@@ -178,6 +179,66 @@ public void Stats_SeriesEnd(MatchTeam winner) {
   GetTeamString(winner, winnerString, sizeof(winnerString));
   g_StatsKv.SetString(STAT_SERIESWINNER, winnerString);
   DumpToFile();
+}
+
+public Action Stats_FlashbangDetonateEvent(Event event, const char[] name, bool dontBroadcast) {
+  if (g_GameState != Get5State_Live) {
+    return Plugin_Continue;
+  }
+
+  int attacker = GetClientOfUserId(event.GetInt("userid"));
+  int entityId = event.GetInt("entityid");
+
+  ArrayList victims = new ArrayList(1, 0);
+
+  StringMap flashEvent = new StringMap();
+  flashEvent.SetValue("attacker", attacker);
+  flashEvent.SetValue("victims", victims);
+
+  char flashKey[32];
+  IntToString(entityId, flashKey, sizeof(flashKey));
+  g_FlashbangContainer.SetValue(flashKey, flashEvent, true);
+
+  CreateTimer(0.005, Timer_HandleFlashbang, entityId, TIMER_FLAG_NO_MAPCHANGE);
+
+  return Plugin_Continue;
+
+}
+
+public Action Timer_HandleFlashbang(Handle timer, int entityId) {
+
+  char flashKey[32];
+  IntToString(entityId, flashKey, sizeof(flashKey));
+
+  StringMap flashEvent;
+  if (g_FlashbangContainer.GetValue(flashKey, flashEvent)) {
+
+    int attacker;
+    ArrayList victims;
+
+    if (flashEvent.GetValue("victims", victims) && flashEvent.GetValue("attacker", attacker)) {
+
+      Call_StartForward(g_OnFlashbangDetonated);
+      Call_PushCell(victims);
+      Call_PushCell(GetMapNumber());
+      Call_PushCell(g_RoundNumber);
+      Call_PushCell(GetMilliSecondsPassedSince(g_RoundStartedTime));
+      Call_PushCell(attacker);
+      Call_PushCell(GetClientTeam(attacker));
+      Call_Finish();
+
+      delete victims;
+
+    }
+
+    g_FlashbangContainer.Remove(flashKey);
+
+    delete flashEvent;
+
+  }
+
+  return Plugin_Handled;
+
 }
 
 public Action Stats_GrenadeThrownEvent(Event event, const char[] name, bool dontBroadcast) {
@@ -496,6 +557,19 @@ public Action Stats_PlayerBlindEvent(Event event, const char[] name, bool dontBr
 
   if (GetClientTeam(attacker) != victimTeam) {
     IncrementPlayerStat(attacker, STAT_ENEMIES_FLASHED);
+
+    int entityId = event.GetInt("entityid");
+    char flashKey[32];
+    IntToString(entityId, flashKey, sizeof(flashKey));
+
+    StringMap flashEvent;
+    if (g_FlashbangContainer.GetValue(flashKey, flashEvent)) {
+      ArrayList victims;
+      if (flashEvent.GetValue("victims", victims)) {
+        victims.Push(victim);
+      }
+    }
+
   } else {
     IncrementPlayerStat(attacker, STAT_FRIENDLIES_FLASHED);
   }
