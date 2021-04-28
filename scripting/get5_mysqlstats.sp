@@ -71,6 +71,167 @@ public void Get5_OnBackupRestore() {
   g_MatchID = StringToInt(matchid);
 }
 
+public void TranslateWeaponString(CSWeaponID weaponId, char[] weapon, char[] buffer, int bufferSize) {
+
+  // Some weapons (such as m4a1 silencer with silencer removed, and the molotov fire) translate to ID 0.
+  // For these, we create a string version wrapped in single quotes and put that value in the placeholder column.
+  // We need these in the replace string as NULL cannot be enclosed in strings when inserted for weapons that do
+  // translate as expected. There's no reason to store these values again and again. This is why, in places where this
+  // value is written to the database, it won't be enclosed in single quotes.
+  if (weaponId == CSWeapon_NONE) {
+    Format(buffer, bufferSize, "'%s'", weapon);
+  } else {
+    Format(buffer, bufferSize, "NULL");
+  }
+
+}
+
+public void Get5_OnPlayerBecameMVP(int mapNumber, int roundNumber, int client, int clientSide, int reason) {
+
+    char clientString[32];
+    GetAuth(client, clientString, sizeof(clientString));
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_mvp` \
+                (matchid, mapnumber, roundnumber, mvp_side, user_mvp, reason) VALUES \
+                (%d, %d, %d, %d, '%s', %d)",
+               g_MatchID, mapNumber, roundNumber, clientSide, clientString, reason);
+    LogDebug(queryBuffer);
+    db.Query(SQLErrorCheckCallback, queryBuffer);
+
+}
+
+public void Get5_OnGrenadeThrown(char[] weapon, int mapNumber, int roundNumber, int roundTime, int attacker,
+    int attackerSide) {
+
+    char attackerString[32];
+    GetAuth(attacker, attackerString, sizeof(attackerString));
+
+    CSWeaponID weaponId = CS_AliasToWeaponID(weapon);
+
+    char weaponString[32] = "";
+    TranslateWeaponString(weaponId, weapon, weaponString, sizeof(weaponString));
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_grenades_thrown` \
+                (matchid, mapnumber, roundnumber, attacker_side, user_attacker, weapon, \
+                round_time, weapon_name) VALUES \
+                (%d, %d, %d, %d, '%s', %d, %d, %s)",
+               g_MatchID, mapNumber, roundNumber, attackerSide, attackerString, weaponId,
+               roundTime, weaponString);
+    LogDebug(queryBuffer);
+    db.Query(SQLErrorCheckCallback, queryBuffer);
+
+}
+
+public void Get5_OnPlayerDiedInMatch(char[] weapon, bool headshot, int mapNumber, int roundNumber, int roundTime,
+    int attacker, int victim, int assister, bool flashAssist, int penetratedObjects, bool thruSmoke, bool noScope,
+    bool attackerBlind, int attackerSide) {
+
+    char attackerString[32];
+    GetAuth(attacker, attackerString, sizeof(attackerString));
+
+    char victimString[32];
+    GetAuth(victim, victimString, sizeof(victimString));
+
+    CSWeaponID weaponId = CS_AliasToWeaponID(weapon);
+
+    char weaponString[32] = "";
+    TranslateWeaponString(weaponId, weapon, weaponString, sizeof(weaponString));
+
+    StringMap assistInfo = CreateTrie();
+    assistInfo.SetValue("assister", assister);
+    assistInfo.SetValue("flash_assist", flashAssist);
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_kills` \
+                (matchid, mapnumber, roundnumber, attacker_side, user_attacker, user_victim, weapon, headshot, \
+                penetrated, thrusmoke, noscope, blinded, round_time, weapon_name) VALUES \
+                (%d, %d, %d, %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %s)",
+               g_MatchID, mapNumber, roundNumber, attackerSide, attackerString, victimString, weaponId, headshot,
+               penetratedObjects, thruSmoke, noScope, attackerBlind, roundTime, weaponString);
+    LogDebug(queryBuffer);
+    db.Query(SQLPlayerKillCallback, queryBuffer, assistInfo);
+
+}
+
+public void Get5_OnBombPlanted(int client, int site, int mapNumber, int roundNumber, int roundTime) {
+
+    char plantString[32];
+    GetAuth(client, plantString, sizeof(plantString));
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_bomb_plant` \
+                (matchid, mapnumber, roundnumber, user_planter, site, round_time) VALUES \
+                (%d, %d, %d, '%s', %d, %d)",
+               g_MatchID, mapNumber, roundNumber, plantString, site, roundTime);
+    LogDebug(queryBuffer);
+    db.Query(SQLErrorCheckCallback, queryBuffer);
+}
+
+public void Get5_OnBombDefused(int client, int site, int mapNumber, int roundNumber, int roundTime,
+    int milliSecondsRemaining) {
+
+    char defuserString[32];
+    GetAuth(client, defuserString, sizeof(defuserString));
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_bomb_defuse` \
+                (matchid, mapnumber, roundnumber, user_defuser, round_time, time_remaining) VALUES \
+                (%d, %d, %d, '%s', %d, %d)",
+               g_MatchID, mapNumber, roundNumber, defuserString, roundTime, milliSecondsRemaining);
+    LogDebug(queryBuffer);
+    db.Query(SQLErrorCheckCallback, queryBuffer);
+}
+
+public void SQLPlayerKillCallback(Database dbObj, DBResultSet results, const char[] error, StringMap data) {
+
+  if (!StrEqual("", error)) {
+
+    LogError("Last Connect SQL Error: %s", error);
+
+  } else {
+
+    bool flashAssist = false;
+    int assister = 0;
+
+    data.GetValue("flash_assist", flashAssist);
+    data.GetValue("assister", assister);
+
+    if (assister > 0) {
+
+      char assisterString[32] = "";
+      GetAuth(assister, assisterString, sizeof(assisterString));
+
+      Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_assists` \
+                      (id, user_assister, flash_assist) VALUES \
+                      (%d, '%s', %d)",
+                      results.InsertId, assisterString, flashAssist);
+      LogDebug(queryBuffer);
+      dbObj.Query(SQLErrorCheckCallback, queryBuffer);
+    }
+  }
+
+  delete data;
+
+}
+
+public void Get5_OnRoundStart(int mapNumber, int roundNumber) {
+
+    Format(queryBuffer, sizeof(queryBuffer), "INSERT INTO `get5_stats_rounds` \
+                (matchid, mapnumber, roundnumber) VALUES \
+                (%d, %d, %d)",
+               g_MatchID, mapNumber, roundNumber);
+    LogDebug(queryBuffer);
+    db.Query(SQLErrorCheckCallback, queryBuffer);
+}
+
+public void Get5_OnRoundEnd(int winner, char[] winningTeam, int mapNumber, int roundNumber, int roundLength, int reason) {
+
+  Format(queryBuffer, sizeof(queryBuffer), "UPDATE `get5_stats_rounds` SET \
+                    winner_side = %d, winner_team = '%s', reason = %d, round_length = %d \
+                    WHERE matchid = %d AND mapnumber = %d AND roundnumber = %d",
+                 winner, winningTeam, reason, roundLength, g_MatchID, mapNumber, roundNumber);
+  LogDebug(queryBuffer);
+  db.Query(SQLErrorCheckCallback, queryBuffer);
+
+}
+
 public void Get5_OnSeriesInit() {
   g_MatchID = -1;
 
@@ -153,8 +314,8 @@ public void Get5_OnGoingLive(int mapNumber) {
   db.Escape(mapName, mapNameSz, sizeof(mapNameSz));
 
   Format(queryBuffer, sizeof(queryBuffer), "INSERT IGNORE INTO `get5_stats_maps` \
-        (matchid, mapnumber, mapname, start_time) VALUES \
-        (%d, %d, '%s', NOW())",
+        (matchid, mapnumber, map, start_time) VALUES \
+        (%d, %d, (SELECT id FROM maps WHERE identifier = '%s'), NOW())",
          g_MatchID, mapNumber, mapNameSz);
   LogDebug(queryBuffer);
 

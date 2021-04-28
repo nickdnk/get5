@@ -133,6 +133,17 @@ public void EventLogger_GoingLive() {
   EventLogger_EndEvent("going_live");
 }
 
+public void EventLogger_GrenadeThrown(int attacker, const char[] weapon) {
+
+  EventLogger_StartEvent();
+  AddMapData(params);
+  AddPlayer(params, "attacker", attacker);
+  params.SetString("weapon", weapon);
+
+  EventLogger_EndEvent("grenade_thrown");
+
+}
+
 public void EventLogger_PlayerDeath(int killer, int victim, bool headshot, int assister,
                              bool flash_assist, const char[] weapon) {
   EventLogger_StartEvent();
@@ -223,11 +234,12 @@ public void EventLogger_BombPlanted(int client, int site) {
   EventLogger_EndEvent("bomb_planted");
 }
 
-public void EventLogger_BombDefused(int client, int site) {
+public void EventLogger_BombDefused(int client, int site, int milliSecondsRemaining) {
   EventLogger_StartEvent();
   AddMapData(params);
   AddPlayer(params, "client", client);
   params.SetInt("site", site);
+  params.SetInt("milliseconds_remaining", milliSecondsRemaining);
   EventLogger_EndEvent("bomb_defused");
 }
 

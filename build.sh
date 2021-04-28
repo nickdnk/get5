@@ -1,0 +1,1 @@
+docker run --rm -v $PWD:/get5src -v $PWD/builds:/get5/builds get5build:latest

@@ -1,12 +1,13 @@
 const float kTimeGivenToTrade = 1.5;
 
 public void Stats_PluginStart() {
-  HookEvent("player_death", Stats_PlayerDeathEvent);
-  HookEvent("player_hurt", Stats_DamageDealtEvent, EventHookMode_Pre);
-  HookEvent("bomb_planted", Stats_BombPlantedEvent);
   HookEvent("bomb_defused", Stats_BombDefusedEvent);
   HookEvent("bomb_exploded", Stats_BombExplodedEvent);
+  HookEvent("bomb_planted", Stats_BombPlantedEvent);
+  HookEvent("grenade_thrown", Stats_GrenadeThrownEvent);
   HookEvent("player_blind", Stats_PlayerBlindEvent);
+  HookEvent("player_death", Stats_PlayerDeathEvent);
+  HookEvent("player_hurt", Stats_DamageDealtEvent, EventHookMode_Pre);
   HookEvent("round_mvp", Stats_RoundMVPEvent);
 }
 
@@ -51,6 +52,8 @@ public void Stats_ResetClientRoundValues(int client) {
   for (int i = 1; i <= MaxClients; i++) {
     g_DamageDone[client][i] = 0;
     g_DamageDoneHits[client][i] = 0;
+    g_DamageDoneKill[client][i] = false;
+    g_DamageDoneAssist[client][i] = false;
   }
 }
 
@@ -177,6 +180,35 @@ public void Stats_SeriesEnd(MatchTeam winner) {
   DumpToFile();
 }
 
+public Action Stats_GrenadeThrownEvent(Event event, const char[] name, bool dontBroadcast) {
+  if (g_GameState != Get5State_Live) {
+    return Plugin_Continue;
+  }
+
+  int attacker = GetClientOfUserId(event.GetInt("userid"));
+
+  if (IsValidClient(attacker)) {
+
+    char weapon[32];
+    event.GetString("weapon", weapon, sizeof(weapon));
+
+    Call_StartForward(g_OnGrenadeThrown);
+    Call_PushString(weapon);
+    Call_PushCell(GetMapNumber());
+    Call_PushCell(g_RoundNumber);
+    Call_PushCell(GetMilliSecondsPassedSince(g_RoundStartedTime));
+    Call_PushCell(attacker);
+    Call_PushCell(GetClientTeam(attacker));
+    Call_Finish();
+
+    EventLogger_GrenadeThrown(attacker, weapon);
+
+  }
+
+  return Plugin_Continue;
+
+}
+
 public Action Stats_PlayerDeathEvent(Event event, const char[] name, bool dontBroadcast) {
   int attacker = GetClientOfUserId(event.GetInt("attacker"));
 
@@ -229,6 +261,7 @@ public Action Stats_PlayerDeathEvent(Event event, const char[] name, bool dontBr
       UpdateTradeStat(attacker, victim);
 
       IncrementPlayerStat(attacker, STAT_KILLS);
+      g_DamageDoneKill[attacker][victim] = true;
       g_PlayerRoundKillOrAssistOrTradedDeath[attacker] = true;
 
       if (headshot) {
@@ -269,6 +302,23 @@ public Action Stats_PlayerDeathEvent(Event event, const char[] name, bool dontBr
       }
 
       EventLogger_PlayerDeath(attacker, victim, headshot, assister, assistedFlash, weapon);
+
+      Call_StartForward(g_OnPlayerDiedInMatch);
+      Call_PushString(weapon);
+      Call_PushCell(headshot);
+      Call_PushCell(GetMapNumber());
+      Call_PushCell(g_RoundNumber);
+      Call_PushCell(GetMilliSecondsPassedSince(g_RoundStartedTime));
+      Call_PushCell(attacker);
+      Call_PushCell(victim);
+      Call_PushCell(assister);
+      Call_PushCell(assistedFlash);
+      Call_PushCell(event.GetInt("penetrated"));
+      Call_PushCell(event.GetBool("thrusmoke"));
+      Call_PushCell(event.GetBool("noscope"));
+      Call_PushCell(event.GetBool("attackerblind"));
+      Call_PushCell(attacker_team);
+      Call_Finish();
 
     } else {
       if (attacker == victim)
@@ -357,11 +407,22 @@ public Action Stats_BombPlantedEvent(Event event, const char[] name, bool dontBr
     return Plugin_Continue;
   }
 
+  g_BombPlantedTime = GetEngineTime();
+
   int client = GetClientOfUserId(event.GetInt("userid"));
   int site = event.GetInt("site");
   if (IsValidClient(client)) {
     IncrementPlayerStat(client, STAT_BOMBPLANTS);
     EventLogger_BombPlanted(client, site);
+
+    Call_StartForward(g_OnBombPlanted);
+    Call_PushCell(client);
+    Call_PushCell(site);
+    Call_PushCell(GetMapNumber());
+    Call_PushCell(g_RoundNumber);
+    Call_PushCell(GetMilliSecondsPassedSince(g_RoundStartedTime));
+    Call_Finish();
+
   }
 
   return Plugin_Continue;
@@ -375,8 +436,21 @@ public Action Stats_BombDefusedEvent(Event event, const char[] name, bool dontBr
   int client = GetClientOfUserId(event.GetInt("userid"));
   int site = event.GetInt("site");
   if (IsValidClient(client)) {
+
+    int milliSecondsRemaining = (GetCvarIntSafe("mp_c4timer") * 1000) - GetMilliSecondsPassedSince(g_BombPlantedTime);
+
     IncrementPlayerStat(client, STAT_BOMBDEFUSES);
-    EventLogger_BombDefused(client, site);
+    EventLogger_BombDefused(client, site, milliSecondsRemaining);
+
+    Call_StartForward(g_OnBombDefused);
+    Call_PushCell(client);
+    Call_PushCell(site);
+    Call_PushCell(GetMapNumber());
+    Call_PushCell(g_RoundNumber);
+    Call_PushCell(GetMilliSecondsPassedSince(g_RoundStartedTime));
+    Call_PushCell(milliSecondsRemaining);
+    Call_Finish();
+
   }
 
   return Plugin_Continue;
@@ -434,11 +508,19 @@ public Action Stats_RoundMVPEvent(Event event, const char[] name, bool dontBroad
     return Plugin_Continue;
   }
 
-  int userid = event.GetInt("userid");
-  int client = GetClientOfUserId(userid);
+  int client = GetClientOfUserId(event.GetInt("userid"));
 
   if (IsValidClient(client)) {
     IncrementPlayerStat(client, STAT_MVP);
+
+    Call_StartForward(g_OnPlayerBecameMVP);
+    Call_PushCell(GetMapNumber());
+    Call_PushCell(g_RoundNumber);
+    Call_PushCell(client);
+    Call_PushCell(GetClientTeam(client));
+    Call_PushCell(event.GetInt("reason"));
+    Call_Finish();
+
   }
 
   return Plugin_Continue;
@@ -559,11 +641,27 @@ static void PrintDamageInfo(int client) {
 
       g_DamagePrintFormat.GetString(message, sizeof(message));
       ReplaceStringWithInt(message, sizeof(message), "{DMG_TO}", g_DamageDone[client][i], false);
-      ReplaceStringWithInt(message, sizeof(message), "{HITS_TO}", g_DamageDoneHits[client][i],
-                           false);
+      ReplaceStringWithInt(message, sizeof(message), "{HITS_TO}", g_DamageDoneHits[client][i], false);
+
+      if (g_DamageDoneKill[client][i]) {
+          ReplaceString(message, sizeof(message), "{KILL_TO}", "[{GREEN}X{NORMAL}]", false);
+      } else if (g_DamageDoneAssist[client][i]) {
+          ReplaceString(message, sizeof(message), "{KILL_TO}", "[{YELLOW}A{NORMAL}]", false);
+      } else {
+          ReplaceString(message, sizeof(message), "{KILL_TO}", "[–]", false);
+      }
+
       ReplaceStringWithInt(message, sizeof(message), "{DMG_FROM}", g_DamageDone[i][client], false);
-      ReplaceStringWithInt(message, sizeof(message), "{HITS_FROM}", g_DamageDoneHits[i][client],
-                           false);
+      ReplaceStringWithInt(message, sizeof(message), "{HITS_FROM}", g_DamageDoneHits[i][client], false);
+
+      if (g_DamageDoneKill[i][client]) {
+          ReplaceString(message, sizeof(message), "{KILL_FROM}", "[{DARK_RED}X{NORMAL}]", false);
+      } else if (g_DamageDoneAssist[i][client]) {
+          ReplaceString(message, sizeof(message), "{KILL_FROM}", "[{YELLOW}A{NORMAL}]", false);
+      } else {
+          ReplaceString(message, sizeof(message), "{KILL_FROM}", "[–]", false);
+      }
+
       ReplaceString(message, sizeof(message), "{NAME}", name, false);
       ReplaceStringWithInt(message, sizeof(message), "{HEALTH}", health, false);
 
